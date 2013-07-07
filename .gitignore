@@ -1,5 +1,6 @@
 # Ignore dev files
 .vagrant/*
 Vagrantfile
-*.egg*
+*.egg
+*.egg-info/*
 *.tar.gz
