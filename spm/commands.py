@@ -85,9 +85,11 @@ def _expand_path(pkg_root, rel_path):
     return os.path.join(pkg_root, rel_path)
 
 
-def _link_files(module_home, pkg_root, path_list):
+def _link_files(pkg_module_home, pkg_root, path_list):
     """
     Link the modules in path_list inside of module_home
+
+    pkg_module_home: ie: '/srv/salt/_states/pkg-name/'
     """
     created_links = []
     for mod_path in path_list:
@@ -97,12 +99,19 @@ def _link_files(module_home, pkg_root, path_list):
         abs_src = _expand_path(pkg_root, rel_src)
         # Create the path to the symlink target
         abs_dir, target = os.path.split(abs_src)
-        abs_dest = os.path.join(module_home, target)
+        abs_dest = os.path.join(pkg_module_home, target)
         # Create symlink
         link = _link_file(abs_src, abs_dest)
         created_links.append(link)
     # Return list of created files
     return created_links
+
+
+def _initialize_module_folder(module_home, pkg_name):
+    pkg_module_dir = os.path.join(module_home, pkg_name)
+    if not os.path.exists(pkg_module_dir):
+        os.makedirs(pkg_module_dir)
+    return pkg_module_dir
 
 
 def _fetch_salt_config():
@@ -142,7 +151,7 @@ def _mark_installed(pkg_name, url, files):
         installed = f.read()
     installed = yaml.load(installed) or {}
 
-    pkg_dict =  {
+    pkg_dict = {
         'url': url,
         'files': files
     }
@@ -192,19 +201,23 @@ def remove(pkg_name, opts):
         logger.info('Removing package {0}'.format(pkg_name))
         src_dir = _get_pkgs_dir()
         pkg_dir = os.path.join(src_dir, pkg_name)
-        # Remove each linked file
-        files = installed[pkg_name].get('files', [])
-        for filedir in files:
-            logger.debug('Removing {0}'.format(filedir))
-            try:
-                os.remove(filedir)
-            except OSError as e:
-                logger.debug(e)
-        # Remove the package
+
+
+        # Fetch salt configuration settings
+        config = _fetch_salt_config()
+        mod_roots = _gen_mod_roots(config)
+
+        # Remove each of the pkg folders from mod roots
+        for root_name, root_folder in mod_roots.items():
+            pkg_mod_root = os.path.join(root_folder, pkg_name)
+            print pkg_mod_root
+            if os.path.exists(pkg_mod_root):
+                shutil.rmtree(pkg_mod_root, ignore_errors=True)
+
         logger.debug('Removing directory {0}'.format(pkg_dir))
         shutil.rmtree(pkg_dir, ignore_errors=True)
 
-        # Remove from list of installed files
+        # Remove from list of installed pkgs
         installed.pop(pkg_name)
 
         with open(INSTALLED, 'w') as f:
@@ -215,6 +228,7 @@ def remove(pkg_name, opts):
 
 
 def install(url, opts):
+    print opts
     _initialize_spm()
 
     pkg_name = _determine_package_name(url)
@@ -230,8 +244,12 @@ def install(url, opts):
         logger.info('Cancelling installation.')
         return False
 
-    # Fetch the package
-    pkg_root = fetch_pkg(pkg_name, url)
+    if opts.develop:
+        # Install from local package
+        pkg_root = url
+    else:
+        # Fetch the package
+        pkg_root = fetch_pkg(pkg_name, url)
 
     # Fetch salt configuration settings
     config = _fetch_salt_config()
@@ -254,9 +272,19 @@ def install(url, opts):
     # Link all the files!
     created_files = []
     for mod_type in module_types:
-        links = _link_files(mod_roots[mod_type], pkg_root, manifest[mod_type])
+        module_home = mod_roots[mod_type]
+        named_folder = _initialize_module_folder(module_home, pkg_name)
+        links = _link_files(named_folder, pkg_root, manifest[mod_type])
         created_files.extend(links)
 
     _mark_installed(pkg_name, url, created_files)
 
     return True
+
+
+def list_pkgs():
+    installed = _get_installed()
+    for pkg in installed.keys():
+        print pkg
+
+
