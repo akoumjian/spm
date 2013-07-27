@@ -1,5 +1,5 @@
 import argparse
-from spm.commands import install
+from spm.commands import install, remove
 import logging
 import sys
 
@@ -12,18 +12,22 @@ class SpmCommand(object):
         parser.add_argument('command', help="spm command to run: ['install']")
         parser.add_argument('pkg', help="package to run operation on")
         parser.add_argument('-l', '--loglevel', help="Set log output level")
-        args = parser.parse_args()
-        self.command = args.command
-        self.pkg = args.pkg
+        self.args = parser.parse_args()
+        self.command = self.args.command
+        self.pkg = self.args.pkg
 
         # Setup logging
-        logger = logging.getLogger('spm')
+        self.logger = logging.getLogger('spm')
         handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(args.loglevel)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setLevel(self.args.loglevel or 'INFO')
+        formatter = logging.Formatter('%(asctime)s [%(name)s] [%(levelname)s] %(message)s')
         handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        self.logger.addHandler(handler)
 
     def run(self):
         if self.command == 'install':
-            install(self.pkg)
+            return install(self.pkg, self.args)
+        elif self.command == 'remove':
+            return remove(self.pkg, self.args)
+        else:
+            self.logger.warning('No such command {0}'.format(self.command))

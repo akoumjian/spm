@@ -1,4 +1,5 @@
 import os
+import shutil
 import yaml
 import tempfile
 import salt.config
@@ -7,6 +8,11 @@ import salt.client
 import logging
 
 logger = logging.getLogger('spm')
+
+SPM_DIR = '/etc/salt/spm'
+PKGS_DIR = os.path.join(SPM_DIR, 'pkgs')
+INSTALLED = os.path.join(SPM_DIR, 'installed')
+CLIENT = os.path.join(SPM_DIR, 'client')
 
 
 def _get_pkgs_dir():
@@ -17,20 +23,18 @@ def _get_pkgs_dir():
     return src_dir
 
 
-def _get_localclient_config():
-    localclient_path = '/etc/salt/spm/client'
-    if not os.path.exists(localclient_path):
-        os.makedirs(os.path.split(localclient_path)[0])
-        with open(localclient_path, 'w') as f:
+def _initialize_localclient_config():
+    if not os.path.exists(CLIENT):
+        with open(CLIENT, 'w') as f:
             f.write('master: localhost\nfile_client: local')
-    return localclient_path
+    return CLIENT
 
 
 def fetch_pkg(pkg_name, url):
     """
     Grab a package from a remote url
     """
-    caller = salt.client.Caller(_get_localclient_config())
+    caller = salt.client.Caller(CLIENT)
     src_dir = _get_pkgs_dir()
 
     url_pieces = url.split('/')
@@ -73,6 +77,9 @@ def _link_file(src, dest):
     # symlink the file or directory
     os.symlink(src, dest)
 
+    # Return destination path so we have a record of created file
+    return dest
+
 
 def _expand_path(pkg_root, rel_path):
     return os.path.join(pkg_root, rel_path)
@@ -82,6 +89,7 @@ def _link_files(module_home, pkg_root, path_list):
     """
     Link the modules in path_list inside of module_home
     """
+    created_links = []
     for mod_path in path_list:
         rel_src = os.path.normpath(mod_path)
 
@@ -91,7 +99,10 @@ def _link_files(module_home, pkg_root, path_list):
         abs_dir, target = os.path.split(abs_src)
         abs_dest = os.path.join(module_home, target)
         # Create symlink
-        _link_file(abs_src, abs_dest)
+        link = _link_file(abs_src, abs_dest)
+        created_links.append(link)
+    # Return list of created files
+    return created_links
 
 
 def _fetch_salt_config():
@@ -126,14 +137,19 @@ def _gen_mod_roots(config):
     return mod_roots
 
 
-def _mark_installed(pkg_name, url):
-    installed_file = '/etc/salt/spm/installed'
-    with open(installed_file, 'r') as f:
+def _mark_installed(pkg_name, url, files):
+    with open(INSTALLED, 'r') as f:
         installed = f.read()
     installed = yaml.load(installed) or {}
-    installed.update(pkg_name, url)
-    with open(installed_file, 'w') as f:
-        f.write(yaml.dumps(installed))
+
+    pkg_dict =  {
+        'url': url,
+        'files': files
+    }
+
+    installed.update({pkg_name: pkg_dict})
+    with open(INSTALLED, 'w') as f:
+        f.write(yaml.dump(installed))
 
 
 def _determine_package_name(url):
@@ -144,8 +160,75 @@ def _determine_package_name(url):
     return pkg_name
 
 
-def install(url):
+def _get_installed():
+    with open(INSTALLED, 'r') as f:
+        installed = f.read()
+
+    installed = yaml.load(installed) or {}
+    return installed
+
+
+def _initialize_spm():
+    for folder in [SPM_DIR, PKGS_DIR]:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+    if not os.path.exists(CLIENT):
+        _initialize_localclient_config()
+
+    if not os.path.exists(INSTALLED):
+        with open(INSTALLED, 'a+') as f:
+            f.write('')
+
+    return True
+
+
+def remove(pkg_name, opts):
+    _initialize_spm()
+
+    installed = _get_installed()
+
+    if pkg_name in installed:
+        logger.info('Removing package {0}'.format(pkg_name))
+        src_dir = _get_pkgs_dir()
+        pkg_dir = os.path.join(src_dir, pkg_name)
+        # Remove each linked file
+        files = installed[pkg_name].get('files', [])
+        for filedir in files:
+            logger.debug('Removing {0}'.format(filedir))
+            try:
+                os.remove(filedir)
+            except OSError as e:
+                logger.debug(e)
+        # Remove the package
+        logger.debug('Removing directory {0}'.format(pkg_dir))
+        shutil.rmtree(pkg_dir, ignore_errors=True)
+
+        # Remove from list of installed files
+        installed.pop(pkg_name)
+
+        with open(INSTALLED, 'w') as f:
+            f.write(yaml.dump(installed))
+
+    else:
+        logger.info('Package {0} is not installed'.format(pkg_name))
+
+
+def install(url, opts):
+    _initialize_spm()
+
     pkg_name = _determine_package_name(url)
+
+    installed = _get_installed()
+
+    if pkg_name in installed:
+        if installed[pkg_name]['url'] == url:
+            logger.info('{0} is already installed'.format(pkg_name))
+        else:
+            logger.info('{0} is installed with different source.'.format(pkg_name))
+
+        logger.info('Cancelling installation.')
+        return False
 
     # Fetch the package
     pkg_root = fetch_pkg(pkg_name, url)
@@ -169,7 +252,11 @@ def install(url):
     ]
 
     # Link all the files!
+    created_files = []
     for mod_type in module_types:
-        _link_files(mod_roots[mod_type], pkg_root, manifest[mod_type])
+        links = _link_files(mod_roots[mod_type], pkg_root, manifest[mod_type])
+        created_files.extend(links)
 
-    _mark_installed(pkg_name, url)
+    _mark_installed(pkg_name, url, created_files)
+
+    return True
