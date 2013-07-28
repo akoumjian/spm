@@ -9,29 +9,27 @@ Allow salt users to pull down packages of formulas, modules, returners, or remov
 Benefits
 --------
 
-1. Encourages developers to write robust and isolated reuseable packages
-2. Easy to keep track of what came from where, what is currently being used
+#. Encourages developers to write robust and isolated reuseable packages
+#. Easy to keep track of what came from where, what is currently being used
 
 
 Installation
 ------------
 
-1. The package gets copied to a local packagesdirectory in /etc/salt/spm/pkgs.
-2. SPM reads the package's MANIFEST file, which points to the location of different salt components. Example:
+#. The package gets copied to a local packagesdirectory in /etc/salt/spm/pkgs.
+#. SPM reads the package's MANIFEST file, which points to the location of different salt components. Where the list 
+values such as ``pkg_modules/`` represent relative paths to the package's root folder::
 
-```
-modules:
-  - pkg_modules/
-states:
-  - pkg_states/
-formulas:
-  - pkgname/
-...
-```
+    modules:
+      - pkg_modules/
+    states:
+      - pkg_states/
+    formulas:
+      - pkgname/
+    ...
 
-Where the list values such as ``pkg_modules/`` represent relative paths to the package's root folder.
 
-3. SPM symlinks the paths from the MANIFEST into the appropriate places in the file_root and pillar_root.
+#. SPM symlinks the paths from the MANIFEST into the appropriate places in the file_root and pillar_root.
 
     /etc/salt/spm/pkgs/pkgname/pkg_modules/ -> /srv/salt/_modules/pkgname/pkg_modules/
     /etc/salt/spm/pkgs/pkgname/pkgname/ -> /srv/salt/pkgname/
