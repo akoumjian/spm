@@ -115,8 +115,8 @@ def _initialize_module_folder(module_home, pkg_name):
 
 
 def _fetch_salt_config():
-    master_path = '/etc/salt/master'
-    minion_path = '/etc/salt/minion'
+    master_path = os.environ.get('SALT_MASTER_CONFIG', '/etc/salt/master')
+    minion_path = os.environ.get('SALT_MINION_CONFIG', '/etc/salt/minion')
     if os.path.exists(master_path):
         opts = salt.config.master_config(master_path)
     elif os.path.exists(minion_path):
