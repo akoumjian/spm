@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger('spm')
 
-SPM_DIR = '/etc/salt/spm'
+SPM_DIR = os.environ.get('SPM_CONFIG', '/etc/salt/spm')
 PKGS_DIR = os.path.join(SPM_DIR, 'pkgs')
 INSTALLED = os.path.join(SPM_DIR, 'installed')
 CLIENT = os.path.join(SPM_DIR, 'client')
@@ -17,7 +17,7 @@ CLIENT = os.path.join(SPM_DIR, 'client')
 
 def _get_pkgs_dir():
     # TODO: Programmatic way to determine where to store these?
-    src_dir = '/etc/salt/spm/pkgs'
+    src_dir = PKGS_DIR
     if not os.path.exists(src_dir):
         os.makedirs(src_dir)
     return src_dir
